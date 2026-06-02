@@ -22,7 +22,7 @@ pip install -e '.[browser]'
 
 AVD sync uses browser fallback by default. HKCERT, zero-day.cz, and GovCERT.HK
 are server-rendered HTML and do not use browser fallback. CVE sync calls the NVD
-API directly.
+API directly. Cisco PSIRT sync calls the OpenVuln API directly.
 
 ## MongoDB Layout
 
@@ -33,6 +33,7 @@ All scrapers use one MongoDB database, with one collection per scraper.
 | `avd_scraper/scrapers/avd/` | `vulnerabilities` | `python scrape.py tui` / `python scrape.py sync <hours>` |
 | `avd_scraper/scrapers/hkcert/` | `hkcert` | same |
 | `avd_scraper/scrapers/cve/` | `cve` | same |
+| `avd_scraper/scrapers/cisco/` | `cisco` | same |
 | `avd_scraper/scrapers/zeroday/` | `zeroday` | same |
 | `avd_scraper/scrapers/govcert/` | `govcert` | same |
 
@@ -49,6 +50,7 @@ conflict = "prompt"
 avd = "vulnerabilities"
 hkcert = "hkcert"
 cve = "cve"
+cisco = "cisco"
 zeroday = "zeroday"
 govcert = "govcert"
 ```
@@ -107,7 +109,10 @@ zero-day.cz detail fields include `advisory`, `vulnerable_component`,
 GovCERT.HK detail fields include `alert_code`, `alert_type`, `published_date`,
 `description`, `affected_systems`, `impact`, `recommendation`,
 `more_information_links`, `tags`, `cve_ids`, and `raw_sections`.
-CVEs from AVD/HKCERT/zero-day.cz/GovCERT.HK details are stored as top-level
+Cisco OpenVuln detail fields include `advisory_id`, `advisory_title`, `sir`,
+`first_published`, `last_updated`, `cve_ids`, `bug_ids`, `cwe`,
+`cvss_base_score`, `product_names`, `publication_url`, `summary`, and `raw`.
+CVEs from AVD/HKCERT/zero-day.cz/GovCERT.HK/Cisco details are stored as top-level
 `cve_code` using the normalized `YYYY-NNNN` form. Non-CVE bulletins use
 `cve_code = null`.
 
@@ -131,6 +136,7 @@ Scrapers live under:
 avd_scraper/scrapers/
   __init__.py
   avd/
+  cisco/
   cve/
   govcert/
   hkcert/
@@ -162,4 +168,11 @@ Set `NVD_API_KEY` for production syncs. Without a key, NVD's public rate limit i
 much lower; the CVE provider defaults to a six-second request delay and uses
 120-day modified-date windows with NVD's 2,000-result page size. This product
 uses data from the NVD API but is not endorsed or certified by the NVD.
+
+The Cisco scraper uses the [PSIRT OpenVuln API](https://developer.cisco.com/docs/psirt/).
+Cisco requires an access token for every OpenVuln API request. Set
+`CISCO_OPENVULN_TOKEN` to use an existing Bearer token, or set
+`CISCO_OPENVULN_CLIENT_ID` and `CISCO_OPENVULN_CLIENT_SECRET` so the scraper can
+obtain and cache an OAuth client-credentials token from Cisco. The shorter
+`CISCO_CLIENT_ID` and `CISCO_CLIENT_SECRET` names are also accepted.
 # cyberclawer

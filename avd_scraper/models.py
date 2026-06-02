@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 import re
 from collections.abc import Iterable
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -59,7 +59,12 @@ class ListEntry:
         provider = self.provider.strip().lower()
         effective_detail = detail if detail is not None else self.embedded_detail
         details = {provider: effective_detail} if effective_detail is not None else {}
-        cve_code = None if provider == "cve" else primary_cve_code(effective_detail)
+        if provider == "cve":
+            cve_code = None
+        elif provider == "cisco":
+            cve_code = normalize_cve_code(_detail_value(effective_detail, "cve_id"))
+        else:
+            cve_code = primary_cve_code(effective_detail)
 
         record: dict[str, Any] = {
             "type": provider,
@@ -154,3 +159,13 @@ def _iter_cve_ids(detail: dict[str, Any]) -> Iterable[str]:
         for item in identifiers:
             if isinstance(item, dict) and item.get("cve_id"):
                 yield str(item["cve_id"])
+
+
+def _detail_value(detail: dict[str, Any] | None, key: str) -> str | None:
+    if not isinstance(detail, dict):
+        return None
+    value = detail.get(key)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

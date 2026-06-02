@@ -138,6 +138,8 @@ class AVDClient:
                 last_error = exc
                 if isinstance(exc, WAFChallengeError):
                     raise
+                if _non_retryable_http_status(exc):
+                    break
                 if attempt >= retry_count:
                     break
                 await self._backoff(attempt)
@@ -174,6 +176,8 @@ class AVDClient:
                 FetchError,
             ) as exc:
                 last_error = exc
+                if _non_retryable_http_status(exc):
+                    break
                 if attempt >= retry_count:
                     break
                 await self._backoff(attempt)
@@ -207,3 +211,10 @@ class AVDClient:
         base = 2**attempt
         jitter = random.uniform(0.1, 0.5)
         await asyncio.sleep(base + jitter)
+
+
+def _non_retryable_http_status(exc: Exception) -> bool:
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return False
+    status_code = exc.response.status_code
+    return status_code != 429 and status_code < 500

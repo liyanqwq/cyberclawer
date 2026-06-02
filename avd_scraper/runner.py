@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 from collections.abc import Callable
@@ -387,17 +388,30 @@ class AVDScraper:
 
     async def _fetch_list_page(self, client: AVDClient, url: str, page: int) -> Any:
         if getattr(self.provider, "content_type", "html") == "json":
-            result = await client.get_json(url, headers=self._provider_request_headers())
+            result = await client.get_json(url, headers=await self._provider_request_headers())
             return self.provider.parse_list(result.data, page=page)
 
         result = await client.get_html(url)
         return self.provider.parse_list(result.html, page=page)
 
-    def _provider_request_headers(self) -> dict[str, str]:
+    async def _provider_request_headers(self) -> dict[str, str]:
+        async_request_headers = getattr(self.provider, "async_request_headers", None)
+        if async_request_headers is not None:
+            try:
+                headers = async_request_headers()
+                if inspect.isawaitable(headers):
+                    headers = await headers
+            except Exception as exc:
+                raise FetchError(str(exc)) from exc
+            return dict(headers)
+
         request_headers = getattr(self.provider, "request_headers", None)
         if request_headers is None:
             return {}
-        return dict(request_headers())
+        try:
+            return dict(request_headers())
+        except Exception as exc:
+            raise FetchError(str(exc)) from exc
 
     def _ensure_provider_checkpoint(self) -> None:
         if self.provider.key != "cve":
@@ -467,7 +481,7 @@ class AVDScraper:
         self._emit(phase="detail", identity=entry.key, type=entry.identity.type, code=entry.identity.code)
         try:
             if getattr(self.provider, "content_type", "html") == "json":
-                result = await client.get_json(url, headers=self._provider_request_headers())
+                result = await client.get_json(url, headers=await self._provider_request_headers())
                 detail = self.provider.parse_detail(result.data).to_dict()
             else:
                 result = await client.get_html(url)
