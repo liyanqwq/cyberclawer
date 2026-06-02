@@ -92,6 +92,16 @@ def test_filter_fields_for_provider_uses_hkcert_fields() -> None:
     assert dynamic_path is None
 
 
+def test_filter_fields_for_provider_uses_zeroday_fields() -> None:
+    categorical_fields, text_fields, dynamic_path = filter_fields_for_provider("zeroday")
+
+    assert "details.zeroday.vulnerable_component" in categorical_fields
+    assert "details.zeroday.cwe.id" in categorical_fields
+    assert "details.zeroday.description" in text_fields
+    assert "details.zeroday.reference_links" in text_fields
+    assert dynamic_path is None
+
+
 def test_tui_field_list_deduplicates_overlapping_fields() -> None:
     assert _dedupe_fields(("type", "status", "type", "cve_code", "cve_code")) == (
         "type",

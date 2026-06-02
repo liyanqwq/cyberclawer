@@ -17,6 +17,7 @@ class HKCERTProvider:
     browser_fallback: bool = False
     content_type: str = "html"
     default_request_delay: float = 1.0
+    stop_on_first_known: bool = False
 
     def list_url(self, page: int, *, checkpoint: object | None = None) -> str:
         return f"{LIST_URL}?item_per_page={ITEMS_PER_PAGE}&page={page}"

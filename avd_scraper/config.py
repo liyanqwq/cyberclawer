@@ -24,6 +24,7 @@ DEFAULT_MONGO_COLLECTIONS = {
     "avd": DEFAULT_MONGO_COLLECTION,
     "hkcert": "hkcert",
     "cve": "cve",
+    "zeroday": "zeroday",
 }
 DEFAULT_MONGO_CONFIG_FILE = Path("mongodb.toml")
 MONGO_CONFLICT_MODES = {"prompt", "skip", "overwrite"}

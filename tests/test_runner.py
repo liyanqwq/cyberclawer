@@ -9,6 +9,7 @@ from avd_scraper.config import ScraperSettings
 from avd_scraper.mongo import MongoSyncResult
 from avd_scraper.runner import AVDScraper
 from avd_scraper.scrapers.cve import CVEProvider
+from avd_scraper.scrapers.zeroday import ZeroDayProvider
 
 
 @pytest.fixture(autouse=True)
@@ -230,6 +231,43 @@ def test_cve_json_provider_embeds_detail_and_advances_checkpoint(tmp_path) -> No
     assert "startIndex=0" in client.urls_seen[0]
 
 
+def test_zeroday_mongo_sync_stops_at_first_known_record(tmp_path) -> None:
+    client = FakeZeroDayClient()
+    collection = FakeMongoCollection(
+        {
+            "zeroday:1102": {
+                "_id": "zeroday:1102",
+                "type": "zeroday",
+                "code": "1102",
+            },
+        }
+    )
+    settings = ScraperSettings(
+        data_dir=tmp_path,
+        output_file=tmp_path / "zeroday.json",
+        checkpoint_file=tmp_path / "zeroday_checkpoint.json",
+        limit=5,
+        mongo_enabled=True,
+        mongo_conflict="skip",
+        request_delay=0,
+        retries=0,
+        concurrency=2,
+    )
+
+    output = asyncio.run(
+        AVDScraper(
+            settings,
+            provider=ZeroDayProvider(),
+            mongo_client_factory=fake_mongo_factory(collection),
+        )._run_with_client(client)
+    )
+
+    assert identities(output["vulnerabilities"]) == ["zeroday:1104", "zeroday:1103"]
+    assert output["mongo_sync"]["inserted"] == 2
+    assert set(collection.documents) == {"zeroday:1104", "zeroday:1103", "zeroday:1102"}
+    assert client.detail_ids_seen == ["1104", "1103"]
+
+
 class FakeClient:
     def __init__(self) -> None:
         self.list_pages_seen: list[int] = []
@@ -274,6 +312,20 @@ class FakeCVEClient:
             },
             url,
         )
+
+
+class FakeZeroDayClient:
+    def __init__(self) -> None:
+        self.detail_ids_seen: list[str] = []
+
+    async def get_html(self, url: str) -> FetchResult:
+        parsed = urlparse(url)
+        if parsed.path == "/database/":
+            return FetchResult(html=zeroday_list_html(), status_code=200, url=url)
+
+        code = parsed.path.rstrip("/").rsplit("/", 1)[-1]
+        self.detail_ids_seen.append(code)
+        return FetchResult(html=zeroday_detail_html(code), status_code=200, url=url)
 
 
 class FakeJSONResult:
@@ -325,6 +377,63 @@ def detail_html(avd_id: str) -> str:
     <span class="header__title__text">{title}</span>
     <span class="badge btn-primary">高危</span>
     <div class="text-detail">description {avd_id}</div>
+    """
+
+
+def zeroday_list_html() -> str:
+    rows = [
+        ("1104", "Newest remote code execution", "CVE-2026-1104", "Remote code execution", "2026-06-04"),
+        ("1103", "Next privilege escalation", "CVE-2026-1103", "Privilege escalation", "2026-06-03"),
+        ("1102", "Known authentication bypass", "CVE-2026-1102", "Authentication bypass", "2026-06-02"),
+        ("1101", "Older unknown issue", "CVE-2026-1101", "Path traversal", "2026-06-01"),
+    ]
+    body = "\n".join(
+        f"""
+        <div class="issue" id="item_{index}">
+          <h3 class="issue-title">
+            <a href="/database/{code}/">{title}<br><span class="issue-code">{cve_id}</span></a>
+          </h3>
+          <div class="description">
+            <p class="desc-title">{vuln_type}</p>
+            <p>Summary for {code}</p>
+          </div>
+          <div class="issue-status">
+            <div class="discavered"><time>{date}</time></div>
+            <div class="patched"><time>{date}</time></div>
+          </div>
+          <div class="spec"><strong>Product {code}</strong></div>
+        </div>
+        """
+        for index, (code, title, cve_id, vuln_type, date) in enumerate(rows)
+    )
+    return f"""
+    <div id="last_vulnerabilities">
+      <p>Zero-day vulnerabilities discovered: 4</p>
+      <div id="issuew_wrap">{body}</div>
+    </div>
+    """
+
+
+def zeroday_detail_html(code: str) -> str:
+    return f"""
+    <div id="last_vulnerabilities">
+      <div class="issue">
+        <h3 class="issue-title">Weakness {code}<br><span class="issue-code">CVE-2026-{code}</span></h3>
+        <div class="issue-status">
+          <div class="discavered"><time>2026-06-01</time></div>
+          <div class="patched"><time>2026-06-01</time></div>
+        </div>
+        <div class="description">
+          <p><b>Advisory</b>: <a href="https://example.test/advisory/{code}">Advisory {code}</a></p>
+          <p><b>Vulnerable component:</b> Product {code}</p>
+          <p><b>CVE-ID</b>: CVE-2026-{code}</p>
+          <p><b>CVSSv3 score</b>: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H</p>
+          <p><b>CWE-ID</b>: CWE-78 - OS Command Injection</p>
+          <p><b>Description</b>:</p>
+          <p>Detail for {code}</p>
+        </div>
+      </div>
+    </div>
     """
 
 

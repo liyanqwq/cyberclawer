@@ -26,6 +26,7 @@ class CVEProvider:
     browser_fallback: bool = False
     content_type: str = "json"
     default_request_delay: float = 6.0
+    stop_on_first_known: bool = False
 
     def list_url(self, page: int, *, checkpoint: object | None = None) -> str:
         start, end, start_index = _window_from_checkpoint(checkpoint, page)

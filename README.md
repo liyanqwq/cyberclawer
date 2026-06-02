@@ -20,8 +20,9 @@ the optional browser fallback:
 pip install -e '.[browser]'
 ```
 
-AVD sync uses browser fallback by default. HKCERT is server-rendered HTML and does
-not use browser fallback. CVE sync calls the NVD API directly.
+AVD sync uses browser fallback by default. HKCERT and zero-day.cz are
+server-rendered HTML and do not use browser fallback. CVE sync calls the NVD API
+directly.
 
 ## MongoDB Layout
 
@@ -32,6 +33,7 @@ All scrapers use one MongoDB database, with one collection per scraper.
 | `avd_scraper/scrapers/avd/` | `vulnerabilities` | `python scrape.py tui` / `python scrape.py sync <hours>` |
 | `avd_scraper/scrapers/hkcert/` | `hkcert` | same |
 | `avd_scraper/scrapers/cve/` | `cve` | same |
+| `avd_scraper/scrapers/zeroday/` | `zeroday` | same |
 
 `mongodb.toml`:
 
@@ -46,6 +48,7 @@ conflict = "prompt"
 avd = "vulnerabilities"
 hkcert = "hkcert"
 cve = "cve"
+zeroday = "zeroday"
 ```
 
 Precedence for connection settings is CLI flags, environment variables
@@ -97,8 +100,10 @@ Provider-specific fields live under `details.<provider>`.
 HKCERT detail fields include `intro`, `note`, `impact`, `systems_affected`,
 `solutions`, `solution_links`, `vulnerability_identifiers`, `bulletin_source`,
 `related_links`, `risk_level`, `release_date`, `last_update_date`, and `views`.
-CVEs from AVD/HKCERT details are stored as top-level `cve_code` using the
-normalized `YYYY-NNNN` form. Non-CVE bulletins use `cve_code = null`.
+zero-day.cz detail fields include `advisory`, `vulnerable_component`,
+`cvss_v3_vector`, `cwe`, `description`, `patch_status`, and `reference_links`.
+CVEs from AVD/HKCERT/zero-day.cz details are stored as top-level `cve_code`
+using the normalized `YYYY-NNNN` form. Non-CVE bulletins use `cve_code = null`.
 
 CVE master records use `type = "cve"`, `code = "YYYY-NNNN"`, `cve_code = null`,
 and store the NVD payload under `details.cve`, including a `raw` copy for
@@ -122,6 +127,7 @@ avd_scraper/scrapers/
   avd/
   cve/
   hkcert/
+  zeroday/
 ```
 
 Each scraper owns its URL config, provider, filter fields, and parsers.
@@ -138,6 +144,9 @@ These scrapers are for personal or research use. Aliyun AVD has no public API fo
 this catalog, so keep conservative request pacing and stop if the site returns
 rate-limit or challenge responses persistently. HKCERT bulletin pages are public,
 server-rendered HTML at [Security Bulletin](https://www.hkcert.org/security-bulletin).
+zero-day.cz records are scraped from [Zero-day Vulnerability Database](https://www.zero-day.cz/database/);
+Mongo sync treats that feed as newest-first and stops once it reaches a stored
+record to avoid historical backfill.
 
 The CVE scraper uses the [NVD API 2.0](https://nvd.nist.gov/developers/vulnerabilities).
 Set `NVD_API_KEY` for production syncs. Without a key, NVD's public rate limit is

@@ -237,6 +237,11 @@ class AVDScraper:
                 and bool(page_ids)
                 and all(identity in known_ids for identity in page_ids)
             )
+            stop_at_known_on_page = (
+                self._stop_on_first_known()
+                and not self._should_refresh_existing_before_stop()
+                and any(identity in known_ids for identity in page_ids)
+            )
             candidates = self._newest_update_targets_for_page(
                 list_page.entries,
                 known_ids=known_ids,
@@ -261,7 +266,7 @@ class AVDScraper:
                 self._complete_nvd_window()
                 self.checkpoint.save(self.settings.checkpoint_file)
                 break
-            if all_known_on_page:
+            if all_known_on_page or stop_at_known_on_page:
                 break
             page += 1
 
@@ -283,14 +288,20 @@ class AVDScraper:
         remaining = self.settings.limit - selected_count
         targets: list[ListEntry] = []
         refresh_existing = self._should_refresh_existing_before_stop()
+        stop_on_first_known = self._stop_on_first_known() and not refresh_existing
         for entry in entries:
             if remaining <= 0:
                 break
             if self.provider.key != "cve" and entry.key in known_ids and not refresh_existing:
+                if stop_on_first_known:
+                    break
                 continue
             targets.append(entry)
             remaining -= 1
         return targets
+
+    def _stop_on_first_known(self) -> bool:
+        return bool(getattr(self.provider, "stop_on_first_known", False))
 
     async def _scrape_matching_records(self, client: AVDClient) -> None:
         page = 1
@@ -505,7 +516,7 @@ class AVDScraper:
     def _has_detail(self, identity: str) -> bool:
         details = self.records_by_id.get(identity, {}).get("details")
         detail = details.get(self.provider.key) if isinstance(details, dict) else None
-        return isinstance(detail, dict)
+        return isinstance(detail, dict) and not detail.get("_list_summary")
 
     def _record_failure(self, identity: str | ListEntry, url: str, error: object, *, phase: str) -> None:
         if isinstance(identity, ListEntry):

@@ -16,6 +16,7 @@ class AVDProvider:
     browser_fallback: bool = True
     content_type: str = "html"
     default_request_delay: float = 1.0
+    stop_on_first_known: bool = False
 
     def list_url(self, page: int, *, checkpoint: object | None = None) -> str:
         return f"{LIST_URL}?page={page}"

@@ -6,6 +6,7 @@ from avd_scraper.models import ListPage
 from avd_scraper.scrapers.avd import AVDProvider
 from avd_scraper.scrapers.cve import CVEProvider
 from avd_scraper.scrapers.hkcert import HKCERTProvider
+from avd_scraper.scrapers.zeroday import ZeroDayProvider
 
 
 class ScraperProvider(Protocol):
@@ -15,6 +16,7 @@ class ScraperProvider(Protocol):
     browser_fallback: bool
     content_type: Literal["html", "json"]
     default_request_delay: float
+    stop_on_first_known: bool
 
     def list_url(self, page: int, *, checkpoint: object | None = None) -> str: ...
 
@@ -29,6 +31,7 @@ PROVIDERS: dict[str, type[ScraperProvider]] = {
     "avd": AVDProvider,
     "hkcert": HKCERTProvider,
     "cve": CVEProvider,
+    "zeroday": ZeroDayProvider,
 }
 
 
