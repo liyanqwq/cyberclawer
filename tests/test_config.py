@@ -110,6 +110,7 @@ def test_mongo_collection_for_provider_uses_collections_table(tmp_path) -> None:
         "cisco": "cisco",
         "zeroday": "zeroday",
         "govcert": "govcert",
+        "huawei_sa": "huawei_sa",
     }
     assert mongo_collection_for_provider("hkcert", config_file) == "hkcert"
 

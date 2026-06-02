@@ -27,6 +27,7 @@ DEFAULT_MONGO_COLLECTIONS = {
     "cisco": "cisco",
     "zeroday": "zeroday",
     "govcert": "govcert",
+    "huawei_sa": "huawei_sa",
 }
 DEFAULT_MONGO_CONFIG_FILE = Path("mongodb.toml")
 MONGO_CONFLICT_MODES = {"prompt", "skip", "overwrite"}

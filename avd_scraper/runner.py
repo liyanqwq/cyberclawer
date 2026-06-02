@@ -388,7 +388,14 @@ class AVDScraper:
 
     async def _fetch_list_page(self, client: AVDClient, url: str, page: int) -> Any:
         if getattr(self.provider, "content_type", "html") == "json":
-            result = await client.get_json(url, headers=await self._provider_request_headers())
+            headers = self._provider_request_headers()
+            request_method = str(getattr(self.provider, "request_method", "GET")).upper()
+            if request_method == "POST":
+                payload_factory = getattr(self.provider, "request_payload", None)
+                payload = payload_factory(page) if callable(payload_factory) else None
+                result = await client.post_json(url, json=payload, headers=headers)
+            else:
+                result = await client.get_json(url, headers=headers)
             return self.provider.parse_list(result.data, page=page)
 
         result = await client.get_html(url)
@@ -501,8 +508,9 @@ class AVDScraper:
             if entry.key not in self.list_order:
                 self.list_order.append(entry.key)
             existing_detail = self.records_by_id.get(entry.key, {}).get("details", {}).get(entry.provider)
+            effective_detail = existing_detail if existing_detail is not None else entry.embedded_detail
             detail_url = self.provider.detail_url(entry.display_id)
-            self.records_by_id[entry.key] = entry.to_record(existing_detail, detail_url=detail_url)
+            self.records_by_id[entry.key] = entry.to_record(effective_detail, detail_url=detail_url)
 
     def _build_output(self) -> dict[str, Any]:
         if self.selected_ids or self.selection_finalized:

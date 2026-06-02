@@ -8,6 +8,7 @@ from avd_scraper.scrapers.cisco import CiscoProvider
 from avd_scraper.scrapers.cve import CVEProvider
 from avd_scraper.scrapers.govcert import GovCERTProvider
 from avd_scraper.scrapers.hkcert import HKCERTProvider
+from avd_scraper.scrapers.huawei_sa import HuaweiSAProvider
 from avd_scraper.scrapers.zeroday import ZeroDayProvider
 
 
@@ -36,6 +37,7 @@ PROVIDERS: dict[str, type[ScraperProvider]] = {
     "cisco": CiscoProvider,
     "zeroday": ZeroDayProvider,
     "govcert": GovCERTProvider,
+    "huawei_sa": HuaweiSAProvider,
 }
 
 

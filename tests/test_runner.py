@@ -11,6 +11,7 @@ from avd_scraper.runner import AVDScraper
 from avd_scraper.scrapers.cisco import CiscoProvider
 from avd_scraper.scrapers.cve import CVEProvider
 from avd_scraper.scrapers.govcert import GovCERTProvider
+from avd_scraper.scrapers.huawei_sa import HuaweiSAProvider
 from avd_scraper.scrapers.zeroday import ZeroDayProvider
 
 
@@ -270,6 +271,42 @@ def test_zeroday_mongo_sync_stops_at_first_known_record(tmp_path) -> None:
     assert client.detail_ids_seen == ["1104", "1103"]
 
 
+def test_huawei_sa_json_provider_converts_api_records_and_skips_empty_cves(tmp_path) -> None:
+    client = FakeHuaweiSAClient()
+    settings = ScraperSettings(
+        data_dir=tmp_path,
+        output_file=tmp_path / "huawei_sa.json",
+        checkpoint_file=tmp_path / "huawei_sa_checkpoint.json",
+        limit=2,
+        request_delay=0,
+        retries=0,
+        concurrency=1,
+    )
+
+    scraper = AVDScraper(settings, provider=HuaweiSAProvider())
+    output = asyncio.run(scraper._run_with_client(client))
+
+    assert identities(output["vulnerabilities"]) == [
+        "huawei_sa:huawei-sa-LKEiSHPVtLPEDF-60937345",
+        "huawei_sa:huawei-sa-DViSHDCP-42041136",
+    ]
+    assert client.post_pages_seen == [1]
+    assert client.detail_urls_seen == []
+
+    with_cve, without_cve = output["vulnerabilities"]
+    assert with_cve["type"] == "huawei_sa"
+    assert with_cve["code"] == "huawei-sa-LKEiSHPVtLPEDF-60937345"
+    assert with_cve["cve_code"] == "2026-43284"
+    assert with_cve["status"] == "NEW"
+    assert with_cve["details"]["huawei_sa"]["cve_ids"] == ["CVE-2026-43284"]
+    assert with_cve["source"]["detail_url"].endswith(
+        "/enterprise/en/sa/detail/huawei-sa-LKEiSHPVtLPEDF-60937345"
+    )
+
+    assert without_cve["cve_code"] is None
+    assert without_cve["details"]["huawei_sa"]["cve_ids"] == []
+
+
 def test_govcert_mongo_sync_stops_at_first_known_record(tmp_path) -> None:
     client = FakeGovCERTClient()
     collection = FakeMongoCollection(
@@ -367,6 +404,68 @@ def test_cisco_json_provider_missing_auth_fails_before_fetch(tmp_path, monkeypat
         event["phase"] == "list-failed" and "requires authentication" in event["error"]
         for event in events
     )
+    
+class FakeHuaweiSAClient:
+    def __init__(self) -> None:
+        self.post_pages_seen: list[int] = []
+        self.detail_urls_seen: list[str] = []
+
+    async def post_json(self, url: str, *, json=None, headers=None):
+        parsed = urlparse(url)
+        self.post_pages_seen.append(int(parse_qs(parsed.query)["pageIndex"][0]))
+        return FakeJSONResult(
+            {
+                "status": "200",
+                "page": {"totalPages": 1, "total": 2},
+                "data": [
+                    {
+                        "allPath": None,
+                        "vul": [
+                            {
+                                "hwPsirtId": "HWPSIRT-2026-27380",
+                                "cveId": "CVE-2026-43284",
+                            }
+                        ],
+                        "isAllPermission": None,
+                        "lang": "en",
+                        "permission": False,
+                        "publishDate": "2026-06-01",
+                        "sasnId": None,
+                        "sasnNo": "huawei-sa-LKEiSHPVtLPEDF-60937345",
+                        "sasnVersion": "1.9",
+                        "severity": "High",
+                        "summary": "Kernel issue",
+                        "title": "Linux Kernel ESP Vulnerability",
+                        "type": None,
+                    },
+                    {
+                        "allPath": None,
+                        "vul": [
+                            {
+                                "hwPsirtId": "HWPSIRT-2026-29427",
+                                "cveId": "",
+                            }
+                        ],
+                        "isAllPermission": None,
+                        "lang": "en",
+                        "permission": False,
+                        "publishDate": "2026-05-28",
+                        "sasnId": None,
+                        "sasnNo": "huawei-sa-DViSHDCP-42041136",
+                        "sasnVersion": "1.3",
+                        "severity": "High",
+                        "summary": "DoS issue",
+                        "title": "DoS Vulnerability in Some Huawei Data Communication Products",
+                        "type": None,
+                    },
+                ],
+            },
+            url,
+        )
+
+    async def get_json(self, url: str, *, headers=None):
+        self.detail_urls_seen.append(url)
+        return FakeJSONResult({}, url)
 
 
 class FakeClient:

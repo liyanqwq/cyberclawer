@@ -45,6 +45,6 @@ def test_run_sync_cycle_calls_each_provider(monkeypatch) -> None:
 
     run_sync_cycle(default_scrape_settings())
 
-    assert calls == ["avd", "hkcert", "cve", "cisco", "zeroday", "govcert"]
-    assert collections == ["vulnerabilities", "hkcert", "cve", "cisco", "zeroday", "govcert"]
+    assert calls == ["avd", "hkcert", "cve", "cisco", "zeroday", "govcert", "huawei_sa"]
+    assert collections == ["vulnerabilities", "hkcert", "cve", "cisco", "zeroday", "govcert", "huawei_sa"]
     assert browser_fallbacks == [True, False, False, False, False, False]
