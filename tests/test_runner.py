@@ -9,6 +9,7 @@ from avd_scraper.config import ScraperSettings
 from avd_scraper.mongo import MongoSyncResult
 from avd_scraper.runner import AVDScraper
 from avd_scraper.scrapers.cve import CVEProvider
+from avd_scraper.scrapers.govcert import GovCERTProvider
 from avd_scraper.scrapers.zeroday import ZeroDayProvider
 
 
@@ -268,6 +269,44 @@ def test_zeroday_mongo_sync_stops_at_first_known_record(tmp_path) -> None:
     assert client.detail_ids_seen == ["1104", "1103"]
 
 
+def test_govcert_mongo_sync_stops_at_first_known_record(tmp_path) -> None:
+    client = FakeGovCERTClient()
+    collection = FakeMongoCollection(
+        {
+            "govcert:1892": {
+                "_id": "govcert:1892",
+                "type": "govcert",
+                "code": "1892",
+            },
+        }
+    )
+    settings = ScraperSettings(
+        data_dir=tmp_path,
+        output_file=tmp_path / "govcert.json",
+        checkpoint_file=tmp_path / "govcert_checkpoint.json",
+        limit=5,
+        mongo_enabled=True,
+        mongo_conflict="skip",
+        request_delay=0,
+        retries=0,
+        concurrency=2,
+    )
+
+    output = asyncio.run(
+        AVDScraper(
+            settings,
+            provider=GovCERTProvider(),
+            mongo_client_factory=fake_mongo_factory(collection),
+        )._run_with_client(client)
+    )
+
+    assert identities(output["vulnerabilities"]) == ["govcert:1894", "govcert:1893"]
+    assert output["vulnerabilities"][0]["cve_code"] == "2026-1894"
+    assert output["mongo_sync"]["inserted"] == 2
+    assert set(collection.documents) == {"govcert:1894", "govcert:1893", "govcert:1892"}
+    assert client.detail_ids_seen == ["1894", "1893"]
+
+
 class FakeClient:
     def __init__(self) -> None:
         self.list_pages_seen: list[int] = []
@@ -326,6 +365,20 @@ class FakeZeroDayClient:
         code = parsed.path.rstrip("/").rsplit("/", 1)[-1]
         self.detail_ids_seen.append(code)
         return FetchResult(html=zeroday_detail_html(code), status_code=200, url=url)
+
+
+class FakeGovCERTClient:
+    def __init__(self) -> None:
+        self.detail_ids_seen: list[str] = []
+
+    async def get_html(self, url: str) -> FetchResult:
+        parsed = urlparse(url)
+        if parsed.path == "/en/alerts.php":
+            return FetchResult(html=govcert_list_html(), status_code=200, url=url)
+
+        code = parse_qs(parsed.query)["id"][0]
+        self.detail_ids_seen.append(code)
+        return FetchResult(html=govcert_detail_html(code), status_code=200, url=url)
 
 
 class FakeJSONResult:
@@ -433,6 +486,49 @@ def zeroday_detail_html(code: str) -> str:
           <p>Detail for {code}</p>
         </div>
       </div>
+    </div>
+    """
+
+
+def govcert_list_html() -> str:
+    rows = [
+        ("1894", "High Threat Security Alert (A26-06-01): Vulnerability in Linux Kernel", "01-June-2026"),
+        ("1893", "Security Alert (A26-05-48): Multiple Vulnerabilities in Microsoft Edge", "29-May-2026"),
+        ("1892", "Security Alert (A26-05-47): Multiple Vulnerabilities in Google Chrome", "29-May-2026"),
+        ("1891", "High Threat Security Alert (A26-05-46): Multiple Vulnerabilities in Oracle Products", "29-May-2026"),
+    ]
+    body = "\n".join(
+        f"""
+        <div class="view-row">
+          <div class="view-col-1">
+            <span class="label label-primary">{date}</span>
+            <a href="alerts_detail.php?id={code}">{title}</a>
+          </div>
+        </div>
+        """
+        for code, title, date in rows
+    )
+    return f"""
+    <span class="total_page">1</span>
+    <div class="view-table">{body}</div>
+    """
+
+
+def govcert_detail_html(code: str) -> str:
+    return f"""
+    <h1 id="doc_title">Security Alert (A26-06-01): Test Alert {code}</h1>
+    <p class="text-content">Published on: 01 June 2026</p>
+    <div class="noneditable">
+      <h4>Description:</h4>
+      <p>Detail for CVE-2026-{code}</p>
+      <h4>Affected Systems:</h4>
+      <ul><li>Product {code}</li></ul>
+      <h4>Impact:</h4>
+      <p>Remote code execution.</p>
+      <h4>Recommendation:</h4>
+      <p>Patch now.</p>
+      <h4>More Information:</h4>
+      <ul><li>https://example.test/advisory/{code}</li></ul>
     </div>
     """
 

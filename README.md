@@ -20,9 +20,9 @@ the optional browser fallback:
 pip install -e '.[browser]'
 ```
 
-AVD sync uses browser fallback by default. HKCERT and zero-day.cz are
-server-rendered HTML and do not use browser fallback. CVE sync calls the NVD API
-directly.
+AVD sync uses browser fallback by default. HKCERT, zero-day.cz, and GovCERT.HK
+are server-rendered HTML and do not use browser fallback. CVE sync calls the NVD
+API directly.
 
 ## MongoDB Layout
 
@@ -34,6 +34,7 @@ All scrapers use one MongoDB database, with one collection per scraper.
 | `avd_scraper/scrapers/hkcert/` | `hkcert` | same |
 | `avd_scraper/scrapers/cve/` | `cve` | same |
 | `avd_scraper/scrapers/zeroday/` | `zeroday` | same |
+| `avd_scraper/scrapers/govcert/` | `govcert` | same |
 
 `mongodb.toml`:
 
@@ -49,6 +50,7 @@ avd = "vulnerabilities"
 hkcert = "hkcert"
 cve = "cve"
 zeroday = "zeroday"
+govcert = "govcert"
 ```
 
 Precedence for connection settings is CLI flags, environment variables
@@ -102,8 +104,12 @@ HKCERT detail fields include `intro`, `note`, `impact`, `systems_affected`,
 `related_links`, `risk_level`, `release_date`, `last_update_date`, and `views`.
 zero-day.cz detail fields include `advisory`, `vulnerable_component`,
 `cvss_v3_vector`, `cwe`, `description`, `patch_status`, and `reference_links`.
-CVEs from AVD/HKCERT/zero-day.cz details are stored as top-level `cve_code`
-using the normalized `YYYY-NNNN` form. Non-CVE bulletins use `cve_code = null`.
+GovCERT.HK detail fields include `alert_code`, `alert_type`, `published_date`,
+`description`, `affected_systems`, `impact`, `recommendation`,
+`more_information_links`, `tags`, `cve_ids`, and `raw_sections`.
+CVEs from AVD/HKCERT/zero-day.cz/GovCERT.HK details are stored as top-level
+`cve_code` using the normalized `YYYY-NNNN` form. Non-CVE bulletins use
+`cve_code = null`.
 
 CVE master records use `type = "cve"`, `code = "YYYY-NNNN"`, `cve_code = null`,
 and store the NVD payload under `details.cve`, including a `raw` copy for
@@ -126,6 +132,7 @@ avd_scraper/scrapers/
   __init__.py
   avd/
   cve/
+  govcert/
   hkcert/
   zeroday/
 ```
@@ -147,6 +154,8 @@ server-rendered HTML at [Security Bulletin](https://www.hkcert.org/security-bull
 zero-day.cz records are scraped from [Zero-day Vulnerability Database](https://www.zero-day.cz/database/);
 Mongo sync treats that feed as newest-first and stops once it reaches a stored
 record to avoid historical backfill.
+GovCERT.HK security alerts are scraped from [Security Alerts](https://www.govcert.gov.hk/en/alerts.php)
+and use the same newest-first sync stop behavior.
 
 The CVE scraper uses the [NVD API 2.0](https://nvd.nist.gov/developers/vulnerabilities).
 Set `NVD_API_KEY` for production syncs. Without a key, NVD's public rate limit is

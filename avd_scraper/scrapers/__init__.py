@@ -5,6 +5,7 @@ from typing import Any, Literal, Protocol
 from avd_scraper.models import ListPage
 from avd_scraper.scrapers.avd import AVDProvider
 from avd_scraper.scrapers.cve import CVEProvider
+from avd_scraper.scrapers.govcert import GovCERTProvider
 from avd_scraper.scrapers.hkcert import HKCERTProvider
 from avd_scraper.scrapers.zeroday import ZeroDayProvider
 
@@ -32,6 +33,7 @@ PROVIDERS: dict[str, type[ScraperProvider]] = {
     "hkcert": HKCERTProvider,
     "cve": CVEProvider,
     "zeroday": ZeroDayProvider,
+    "govcert": GovCERTProvider,
 }
 
 

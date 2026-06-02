@@ -102,6 +102,16 @@ def test_filter_fields_for_provider_uses_zeroday_fields() -> None:
     assert dynamic_path is None
 
 
+def test_filter_fields_for_provider_uses_govcert_fields() -> None:
+    categorical_fields, text_fields, dynamic_path = filter_fields_for_provider("govcert")
+
+    assert "details.govcert.alert_type" in categorical_fields
+    assert "details.govcert.tags" in categorical_fields
+    assert "details.govcert.description" in text_fields
+    assert "details.govcert.cve_ids" in text_fields
+    assert dynamic_path is None
+
+
 def test_tui_field_list_deduplicates_overlapping_fields() -> None:
     assert _dedupe_fields(("type", "status", "type", "cve_code", "cve_code")) == (
         "type",
