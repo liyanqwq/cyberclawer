@@ -22,7 +22,9 @@ pip install -e '.[browser]'
 
 AVD sync uses browser fallback by default. HKCERT, zero-day.cz, and GovCERT.HK
 are server-rendered HTML and do not use browser fallback. CVE sync calls the NVD
-API directly.
+API directly. Huawei SA sync calls Huawei's JSON advisory endpoint; set
+`HUAWEI_SA_X_CK` and `HUAWEI_SA_CSRF_TOKEN` if the endpoint requires browser
+session tokens.
 
 ## MongoDB Layout
 
@@ -35,6 +37,7 @@ All scrapers use one MongoDB database, with one collection per scraper.
 | `avd_scraper/scrapers/cve/` | `cve` | same |
 | `avd_scraper/scrapers/zeroday/` | `zeroday` | same |
 | `avd_scraper/scrapers/govcert/` | `govcert` | same |
+| `avd_scraper/scrapers/huawei_sa/` | `huawei_sa` | same |
 
 `mongodb.toml`:
 
@@ -51,6 +54,7 @@ hkcert = "hkcert"
 cve = "cve"
 zeroday = "zeroday"
 govcert = "govcert"
+huawei_sa = "huawei_sa"
 ```
 
 Precedence for connection settings is CLI flags, environment variables
@@ -90,8 +94,8 @@ already exists, choose replace or rename).
 
 Each document is keyed by unique lowercase scraper `type` + provider-native
 `code`, with `_id` such as `avd:2026-42945`,
-`hkcert:suse-linux-kernel-multiple-vulnerabilities_20260601`, or
-`cve:2024-3094`. Common fields live at the top level:
+`hkcert:suse-linux-kernel-multiple-vulnerabilities_20260601`,
+`huawei_sa:huawei-sa-LKEiSHPVtLPEDF-60937345`, or `cve:2024-3094`. Common fields live at the top level:
 
 - `type`, `code`, `cve_code`, `title`, `disclosure_date`, `status`
 - `source`
@@ -106,8 +110,10 @@ zero-day.cz detail fields include `advisory`, `vulnerable_component`,
 `cvss_v3_vector`, `cwe`, `description`, `patch_status`, and `reference_links`.
 GovCERT.HK detail fields include `alert_code`, `alert_type`, `published_date`,
 `description`, `affected_systems`, `impact`, `recommendation`,
-`more_information_links`, `tags`, `cve_ids`, and `raw_sections`.
-CVEs from AVD/HKCERT/zero-day.cz/GovCERT.HK details are stored as top-level
+`more_information_links`, `tags`, `cve_ids`, and `raw_sections`. Huawei SA records
+preserve the advisory API payload under `details.huawei_sa` and add `cve_ids`
+when non-empty CVE IDs are present in Huawei's `vul` list.
+CVEs from AVD/HKCERT/zero-day.cz/GovCERT.HK/Huawei SA details are stored as top-level
 `cve_code` using the normalized `YYYY-NNNN` form. Non-CVE bulletins use
 `cve_code = null`.
 
@@ -134,6 +140,7 @@ avd_scraper/scrapers/
   cve/
   govcert/
   hkcert/
+  huawei_sa/
   zeroday/
 ```
 
@@ -155,7 +162,9 @@ zero-day.cz records are scraped from [Zero-day Vulnerability Database](https://w
 Mongo sync treats that feed as newest-first and stops once it reaches a stored
 record to avoid historical backfill.
 GovCERT.HK security alerts are scraped from [Security Alerts](https://www.govcert.gov.hk/en/alerts.php)
-and use the same newest-first sync stop behavior.
+and use the same newest-first sync stop behavior. Huawei SA advisories are
+retrieved from Huawei's enterprise security advisory JSON endpoint with a POST
+payload equivalent to the standalone Huawei bulletin script.
 
 The CVE scraper uses the [NVD API 2.0](https://nvd.nist.gov/developers/vulnerabilities).
 Set `NVD_API_KEY` for production syncs. Without a key, NVD's public rate limit is

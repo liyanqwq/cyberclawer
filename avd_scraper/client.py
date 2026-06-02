@@ -151,13 +151,39 @@ class AVDClient:
         headers: Mapping[str, str] | None = None,
         retries: int | None = None,
     ) -> JSONFetchResult:
+        return await self._request_json("GET", url, headers=headers, retries=retries)
+
+    async def post_json(
+        self,
+        url: str,
+        *,
+        json: Any | None = None,
+        headers: Mapping[str, str] | None = None,
+        retries: int | None = None,
+    ) -> JSONFetchResult:
+        return await self._request_json("POST", url, headers=headers, json=json, retries=retries)
+
+    async def _request_json(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        json: Any | None = None,
+        retries: int | None = None,
+    ) -> JSONFetchResult:
         retry_count = self.retries if retries is None else max(0, retries)
         last_error: Exception | None = None
 
         for attempt in range(retry_count + 1):
             await self.rate_limiter.wait()
             try:
-                response = await self._client.get(url, headers=dict(headers or {}))
+                response = await self._client.request(
+                    method,
+                    url,
+                    headers=dict(headers or {}),
+                    json=json,
+                )
                 if response.status_code == 429 or response.status_code >= 500:
                     raise FetchError(f"HTTP {response.status_code} for {url}")
                 response.raise_for_status()
