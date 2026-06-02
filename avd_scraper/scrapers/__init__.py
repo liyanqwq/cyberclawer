@@ -4,6 +4,7 @@ from typing import Any, Literal, Protocol
 
 from avd_scraper.models import ListPage
 from avd_scraper.scrapers.avd import AVDProvider
+from avd_scraper.scrapers.cisco import CiscoProvider
 from avd_scraper.scrapers.cve import CVEProvider
 from avd_scraper.scrapers.govcert import GovCERTProvider
 from avd_scraper.scrapers.hkcert import HKCERTProvider
@@ -33,6 +34,7 @@ PROVIDERS: dict[str, type[ScraperProvider]] = {
     "avd": AVDProvider,
     "hkcert": HKCERTProvider,
     "cve": CVEProvider,
+    "cisco": CiscoProvider,
     "zeroday": ZeroDayProvider,
     "govcert": GovCERTProvider,
     "huawei_sa": HuaweiSAProvider,

@@ -8,6 +8,7 @@ from avd_scraper.client import FetchResult
 from avd_scraper.config import ScraperSettings
 from avd_scraper.mongo import MongoSyncResult
 from avd_scraper.runner import AVDScraper
+from avd_scraper.scrapers.cisco import CiscoProvider
 from avd_scraper.scrapers.cve import CVEProvider
 from avd_scraper.scrapers.govcert import GovCERTProvider
 from avd_scraper.scrapers.huawei_sa import HuaweiSAProvider
@@ -344,6 +345,66 @@ def test_govcert_mongo_sync_stops_at_first_known_record(tmp_path) -> None:
     assert client.detail_ids_seen == ["1894", "1893"]
 
 
+def test_cisco_json_provider_uses_bearer_header_and_embeds_detail(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CISCO_OPENVULN_TOKEN", "token-123")
+    client = FakeCiscoClient()
+    settings = ScraperSettings(
+        data_dir=tmp_path,
+        output_file=tmp_path / "cisco.json",
+        checkpoint_file=tmp_path / "cisco_checkpoint.json",
+        limit=1,
+        request_delay=0,
+        retries=0,
+        concurrency=1,
+    )
+
+    output = asyncio.run(AVDScraper(settings, provider=CiscoProvider())._run_with_client(client))
+
+    assert identities(output["vulnerabilities"]) == ["cisco:cisco-sa-foo-123"]
+    record = output["vulnerabilities"][0]
+    assert record["cve_code"] == "2026-12345"
+    assert record["details"]["cisco"]["advisory_id"] == "cisco-sa-foo-123"
+    assert client.headers_seen == [
+        {"Accept": "application/json", "Authorization": "Bearer token-123"},
+    ]
+
+
+def test_cisco_json_provider_missing_auth_fails_before_fetch(tmp_path, monkeypatch) -> None:
+    for name in (
+        "CISCO_OPENVULN_TOKEN",
+        "CISCO_OPENVULN_CLIENT_ID",
+        "CISCO_OPENVULN_CLIENT_SECRET",
+        "CISCO_CLIENT_ID",
+        "CISCO_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    client = FakeNoCallJSONClient()
+    events: list[dict] = []
+    settings = ScraperSettings(
+        data_dir=tmp_path,
+        output_file=tmp_path / "cisco.json",
+        checkpoint_file=tmp_path / "cisco_checkpoint.json",
+        limit=1,
+        request_delay=0,
+        retries=0,
+        concurrency=1,
+    )
+
+    output = asyncio.run(
+        AVDScraper(
+            settings,
+            provider=CiscoProvider(),
+            progress_callback=events.append,
+        )._run_with_client(client)
+    )
+
+    assert output["vulnerabilities"] == []
+    assert not client.called
+    assert any(
+        event["phase"] == "list-failed" and "requires authentication" in event["error"]
+        for event in events
+    )
+    
 class FakeHuaweiSAClient:
     def __init__(self) -> None:
         self.post_pages_seen: list[int] = []
@@ -479,6 +540,56 @@ class FakeGovCERTClient:
         code = parse_qs(parsed.query)["id"][0]
         self.detail_ids_seen.append(code)
         return FetchResult(html=govcert_detail_html(code), status_code=200, url=url)
+
+
+class FakeCiscoClient:
+    def __init__(self) -> None:
+        self.headers_seen: list[dict | None] = []
+
+    async def get_json(self, url: str, *, headers=None):
+        self.headers_seen.append(dict(headers or {}))
+        parsed = urlparse(url)
+        if parsed.path.endswith("/all"):
+            return FakeJSONResult(
+                {
+                    "advisories": [
+                        {
+                            "advisoryId": "cisco-sa-foo-123",
+                            "advisoryTitle": "Cisco Product Remote Code Execution Vulnerability",
+                            "cves": "CVE-2026-12345",
+                            "firstPublished": "2026-05-20T15:00:00",
+                            "status": "Final",
+                            "sir": "Critical",
+                        }
+                    ],
+                    "paging": {"count": 1, "next": "NA", "prev": "NA"},
+                },
+                url,
+            )
+        return FakeJSONResult(
+            {
+                "advisories": [
+                    {
+                        "advisoryId": "cisco-sa-foo-123",
+                        "advisoryTitle": "Cisco Product Remote Code Execution Vulnerability",
+                        "cves": "CVE-2026-12345",
+                        "firstPublished": "2026-05-20T15:00:00",
+                        "status": "Final",
+                        "sir": "Critical",
+                    }
+                ]
+            },
+            url,
+        )
+
+
+class FakeNoCallJSONClient:
+    def __init__(self) -> None:
+        self.called = False
+
+    async def get_json(self, url: str, *, headers=None):
+        self.called = True
+        raise AssertionError("missing provider auth should prevent JSON fetch")
 
 
 class FakeJSONResult:

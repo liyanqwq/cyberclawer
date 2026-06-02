@@ -24,6 +24,7 @@ DEFAULT_MONGO_COLLECTIONS = {
     "avd": DEFAULT_MONGO_COLLECTION,
     "hkcert": "hkcert",
     "cve": "cve",
+    "cisco": "cisco",
     "zeroday": "zeroday",
     "govcert": "govcert",
     "huawei_sa": "huawei_sa",

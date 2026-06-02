@@ -107,6 +107,7 @@ def test_mongo_collection_for_provider_uses_collections_table(tmp_path) -> None:
         "avd": "vulnerabilities",
         "hkcert": "hkcert",
         "cve": "cve",
+        "cisco": "cisco",
         "zeroday": "zeroday",
         "govcert": "govcert",
         "huawei_sa": "huawei_sa",

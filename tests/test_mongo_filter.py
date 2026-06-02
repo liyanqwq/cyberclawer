@@ -112,6 +112,16 @@ def test_filter_fields_for_provider_uses_govcert_fields() -> None:
     assert dynamic_path is None
 
 
+def test_filter_fields_for_provider_uses_cisco_fields() -> None:
+    categorical_fields, text_fields, dynamic_path = filter_fields_for_provider("cisco")
+
+    assert "details.cisco.sir" in categorical_fields
+    assert "details.cisco.product_names" in categorical_fields
+    assert "details.cisco.summary" in text_fields
+    assert "details.cisco.publication_url" in text_fields
+    assert dynamic_path is None
+
+
 def test_tui_field_list_deduplicates_overlapping_fields() -> None:
     assert _dedupe_fields(("type", "status", "type", "cve_code", "cve_code")) == (
         "type",
