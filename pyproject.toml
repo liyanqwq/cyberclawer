@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "avd-high-risk-scraper"
+version = "0.1.0"
+description = "Async terminal scrapers for vulnerability bulletin catalogs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.12.0",
+    "httpx>=0.27.0",
+    "lxml>=5.0.0",
+    "pymongo>=4.7.0",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.44.0"]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+avd-scrape = "avd_scraper.cli:main"
+mongodb-filter = "avd_scraper.tui:main"
+
+[tool.setuptools.packages.find]
+include = ["avd_scraper*"]
