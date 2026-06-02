@@ -11,6 +11,7 @@ from avd_scraper.mongo_filter import (
     fetch_filtered_page,
     filter_fields_for_provider,
 )
+from avd_scraper.tui import _dedupe_fields
 
 
 def test_build_mongo_query_combines_checkbox_or_and_text_contains() -> None:
@@ -85,8 +86,18 @@ def test_filter_fields_for_provider_uses_hkcert_fields() -> None:
     categorical_fields, text_fields, dynamic_path = filter_fields_for_provider("hkcert")
 
     assert "details.hkcert.risk_level" in categorical_fields
+    assert "cve_code" not in categorical_fields
+    assert "cve_code" in text_fields
     assert "details.hkcert.solutions" in text_fields
     assert dynamic_path is None
+
+
+def test_tui_field_list_deduplicates_overlapping_fields() -> None:
+    assert _dedupe_fields(("type", "status", "type", "cve_code", "cve_code")) == (
+        "type",
+        "status",
+        "cve_code",
+    )
 
 
 def test_export_filtered_results_writes_expected_payload(tmp_path) -> None:

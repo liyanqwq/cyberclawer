@@ -113,7 +113,7 @@ class MongoFilterTUI:
         self.categorical_fields = categorical_fields
         self.text_fields = text_fields
         self.export_path = export_path
-        self.fields = (*categorical_fields, *text_fields)
+        self.fields = _dedupe_fields((*categorical_fields, *text_fields))
         self.state = MongoFilterState()
         self.mode = "fields"
         self.field_index = 0
@@ -386,6 +386,17 @@ class MongoFilterTUI:
         if row < 0 or col >= width:
             return
         stdscr.addnstr(row, col, text, max(0, width - col - 1), attr)
+
+
+def _dedupe_fields(fields: tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for field_name in fields:
+        if field_name in seen:
+            continue
+        seen.add(field_name)
+        unique.append(field_name)
+    return tuple(unique)
 
 
 def main(argv: list[str] | None = None) -> None:

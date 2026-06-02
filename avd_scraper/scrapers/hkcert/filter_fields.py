@@ -2,7 +2,6 @@ CATEGORICAL_FIELDS: tuple[str, ...] = (
     "type",
     "status",
     "disclosure_date",
-    "cve_code",
     "details.hkcert.risk_level",
     "details.hkcert.bulletin_source",
     "details.hkcert.release_date",

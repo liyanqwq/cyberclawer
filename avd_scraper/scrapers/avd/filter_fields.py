@@ -3,7 +3,6 @@ CATEGORICAL_FIELDS: tuple[str, ...] = (
     "status",
     "vuln_type",
     "disclosure_date",
-    "cve_code",
     "details.avd.danger_level",
     "details.avd.exploitability",
     "details.avd.patch_status",
