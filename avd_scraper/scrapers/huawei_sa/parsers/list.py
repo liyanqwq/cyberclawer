@@ -56,8 +56,7 @@ def _data_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in data if isinstance(item, dict)]
 
 
-def _entry_fr
-om_advisory(
+def _entry_from_advisory(
     advisory: dict[str, Any],
     *,
     provider: str,
