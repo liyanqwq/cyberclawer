@@ -17,6 +17,7 @@ def run_sync_cycle(settings: ScraperSettings) -> None:
             provider.key,
             default_collection=provider.default_mongo_collection,
             browser_fallback=provider.browser_fallback,
+            default_request_delay=provider.default_request_delay,
         )
         normalized = provider_settings.normalized()
         logger.info(

@@ -11,13 +11,14 @@ def test_build_mongo_document_requires_type_and_code() -> None:
         build_mongo_document({"title": "missing id"}, output_payload())
 
 
-def test_build_mongo_document_sets_identity_and_cross_refs() -> None:
+def test_build_mongo_document_sets_lowercase_identity_and_cve_code() -> None:
     document = build_mongo_document(record("2026-10001", cve_code="2026-10001"), output_payload())
 
-    assert document["_id"] == "AVD:2026-10001"
-    assert document["type"] == "AVD"
+    assert document["_id"] == "avd:2026-10001"
+    assert document["type"] == "avd"
     assert document["code"] == "2026-10001"
-    assert document["cross_refs"] == [{"type": "CVE", "code": "2026-10001"}]
+    assert document["cve_code"] == "2026-10001"
+    assert "cross_refs" not in document
     assert document["source"] == "test-source"
 
 
@@ -34,11 +35,11 @@ def test_sync_inserts_records_and_creates_indexes() -> None:
     assert result.inserted == 1
     assert collection.indexes == [
         ([("type", 1), ("code", 1)], True),
-        ([("cross_refs.type", 1), ("cross_refs.code", 1)], False),
+        ("cve_code", False),
         ("disclosure_date", False),
         ("status", False),
     ]
-    assert collection.documents["AVD:2026-10001"]["type"] == "AVD"
+    assert collection.documents["avd:2026-10001"]["type"] == "avd"
 
 
 def test_sync_stores_all_raw_output_records() -> None:
@@ -57,13 +58,13 @@ def test_sync_stores_all_raw_output_records() -> None:
     )
 
     assert result.inserted == 2
-    assert set(collection.documents) == {"AVD:2026-10001", "AVD:2026-10002"}
-    assert collection.documents["AVD:2026-10002"]["cross_refs"] == []
+    assert set(collection.documents) == {"avd:2026-10001", "avd:2026-10002"}
+    assert collection.documents["avd:2026-10002"]["cve_code"] is None
 
 
 def test_sync_skips_conflicts_when_not_interactive() -> None:
     collection = FakeCollection()
-    collection.documents["AVD:2026-10001"] = build_mongo_document(
+    collection.documents["avd:2026-10001"] = build_mongo_document(
         record("2026-10001", title="old"),
         output_payload(),
     )
@@ -77,12 +78,12 @@ def test_sync_skips_conflicts_when_not_interactive() -> None:
 
     assert result.conflicts == 1
     assert result.skipped == 1
-    assert collection.documents["AVD:2026-10001"]["title"] == "old"
+    assert collection.documents["avd:2026-10001"]["title"] == "old"
 
 
 def test_sync_prompt_can_overwrite_conflict(monkeypatch) -> None:
     collection = FakeCollection()
-    collection.documents["AVD:2026-10001"] = build_mongo_document(
+    collection.documents["avd:2026-10001"] = build_mongo_document(
         record("2026-10001", title="old"),
         output_payload(),
     )
@@ -97,14 +98,14 @@ def test_sync_prompt_can_overwrite_conflict(monkeypatch) -> None:
 
     assert result.conflicts == 1
     assert result.overwritten == 1
-    assert collection.documents["AVD:2026-10001"]["title"] == "new"
+    assert collection.documents["avd:2026-10001"]["title"] == "new"
 
 
 def test_sync_skips_unchanged_documents() -> None:
     collection = FakeCollection()
     existing = build_mongo_document(record("2026-10001"), output_payload())
     existing["scraped_at"] = "older-run"
-    collection.documents["AVD:2026-10001"] = existing
+    collection.documents["avd:2026-10001"] = existing
     settings = ScraperSettings(mongo_enabled=True, mongo_conflict="overwrite")
 
     result = sync_output_to_mongo(
@@ -126,12 +127,12 @@ def test_redact_mongo_uri_hides_password() -> None:
 
 def record(code: str, *, cve_code: str | None = None, title: str = "title") -> dict:
     return {
-        "type": "AVD",
+        "type": "avd",
         "code": code.removeprefix("AVD-"),
         "title": title,
         "vuln_type": "CWE-78",
         "status": "CVE PoC",
-        "cross_refs": ([{"type": "CVE", "code": cve_code}] if cve_code else []),
+        "cve_code": cve_code,
         "details": {"avd": {"cve_id": f"CVE-{cve_code}" if cve_code else None}},
     }
 

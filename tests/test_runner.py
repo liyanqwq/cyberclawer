@@ -2,9 +2,21 @@ import asyncio
 import copy
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+
 from avd_scraper.client import FetchResult
 from avd_scraper.config import ScraperSettings
+from avd_scraper.mongo import MongoSyncResult
 from avd_scraper.runner import AVDScraper
+from avd_scraper.scrapers.cve import CVEProvider
+
+
+@pytest.fixture(autouse=True)
+def disable_cve_backfill(monkeypatch) -> None:
+    async def fake_backfill(*args, **kwargs) -> MongoSyncResult:
+        return MongoSyncResult()
+
+    monkeypatch.setattr("avd_scraper.runner.backfill_missing_cves", fake_backfill)
 
 
 def test_limit_counts_raw_results(tmp_path) -> None:
@@ -24,8 +36,8 @@ def test_limit_counts_raw_results(tmp_path) -> None:
     output = asyncio.run(AVDScraper(settings)._run_with_client(client))
 
     assert identities(output["vulnerabilities"]) == [
-        "AVD:2026-10001",
-        "AVD:2026-10002",
+        "avd:2026-10001",
+        "avd:2026-10002",
     ]
     assert output["result_count"] == 2
     assert output["raw_limit"] == 2
@@ -50,8 +62,8 @@ def test_deprecated_attribute_filters_do_not_filter_scrape_results(tmp_path) -> 
     output = asyncio.run(AVDScraper(settings)._run_with_client(client))
 
     assert identities(output["vulnerabilities"]) == [
-        "AVD:2026-10001",
-        "AVD:2026-10002",
+        "avd:2026-10001",
+        "avd:2026-10002",
     ]
     assert "filters" not in output
     assert client.list_pages_seen == [1]
@@ -73,7 +85,7 @@ def test_raw_limit_fetches_detail_only_for_limited_rows(tmp_path) -> None:
 
     output = asyncio.run(AVDScraper(settings)._run_with_client(client))
 
-    assert identities(output["vulnerabilities"]) == ["AVD:2026-10001"]
+    assert identities(output["vulnerabilities"]) == ["avd:2026-10001"]
     assert client.list_pages_seen == [1]
 
 
@@ -97,14 +109,14 @@ def test_mongo_update_empty_collection_fetches_newest_up_to_limit(tmp_path) -> N
     )
 
     assert identities(output["vulnerabilities"]) == [
-        "AVD:2026-10001",
-        "AVD:2026-10002",
-        "AVD:2026-10003",
+        "avd:2026-10001",
+        "avd:2026-10002",
+        "avd:2026-10003",
     ]
     assert set(collection.documents) == {
-        "AVD:2026-10001",
-        "AVD:2026-10002",
-        "AVD:2026-10003",
+        "avd:2026-10001",
+        "avd:2026-10002",
+        "avd:2026-10003",
     }
     assert output["mongo_sync"]["inserted"] == 3
     assert not settings.output_file.exists()
@@ -115,8 +127,8 @@ def test_mongo_update_stops_when_newest_page_already_known(tmp_path) -> None:
     client = FakeClient()
     collection = FakeMongoCollection(
         {
-            "AVD:2026-10001": {"_id": "AVD:2026-10001", "type": "AVD", "code": "2026-10001"},
-            "AVD:2026-10002": {"_id": "AVD:2026-10002", "type": "AVD", "code": "2026-10002"},
+            "avd:2026-10001": {"_id": "avd:2026-10001", "type": "avd", "code": "2026-10001"},
+            "avd:2026-10002": {"_id": "avd:2026-10002", "type": "avd", "code": "2026-10002"},
         }
     )
     settings = ScraperSettings(
@@ -145,9 +157,9 @@ def test_mongo_update_mixed_page_syncs_new_records_then_stops_on_known_page(tmp_
     client = FakeClient()
     collection = FakeMongoCollection(
         {
-            "AVD:2026-10002": {"_id": "AVD:2026-10002", "type": "AVD", "code": "2026-10002"},
-            "AVD:2026-10003": {"_id": "AVD:2026-10003", "type": "AVD", "code": "2026-10003"},
-            "AVD:2026-10004": {"_id": "AVD:2026-10004", "type": "AVD", "code": "2026-10004"},
+            "avd:2026-10002": {"_id": "avd:2026-10002", "type": "avd", "code": "2026-10002"},
+            "avd:2026-10003": {"_id": "avd:2026-10003", "type": "avd", "code": "2026-10003"},
+            "avd:2026-10004": {"_id": "avd:2026-10004", "type": "avd", "code": "2026-10004"},
         }
     )
     settings = ScraperSettings(
@@ -166,13 +178,13 @@ def test_mongo_update_mixed_page_syncs_new_records_then_stops_on_known_page(tmp_
         AVDScraper(settings, mongo_client_factory=fake_mongo_factory(collection))._run_with_client(client)
     )
 
-    assert identities(output["vulnerabilities"]) == ["AVD:2026-10001"]
+    assert identities(output["vulnerabilities"]) == ["avd:2026-10001"]
     assert output["mongo_sync"]["inserted"] == 1
     assert set(collection.documents) == {
-        "AVD:2026-10001",
-        "AVD:2026-10002",
-        "AVD:2026-10003",
-        "AVD:2026-10004",
+        "avd:2026-10001",
+        "avd:2026-10002",
+        "avd:2026-10003",
+        "avd:2026-10004",
     }
     assert client.list_pages_seen == [1, 2]
 
@@ -194,6 +206,30 @@ def test_non_mongo_scrape_still_writes_json(tmp_path) -> None:
     assert settings.output_file.exists()
 
 
+def test_cve_json_provider_embeds_detail_and_advances_checkpoint(tmp_path) -> None:
+    client = FakeCVEClient()
+    settings = ScraperSettings(
+        data_dir=tmp_path,
+        output_file=tmp_path / "cves.json",
+        checkpoint_file=tmp_path / "cve_checkpoint.json",
+        limit=1,
+        request_delay=0,
+        retries=0,
+        concurrency=1,
+    )
+
+    scraper = AVDScraper(settings, provider=CVEProvider())
+    output = asyncio.run(scraper._run_with_client(client))
+
+    assert identities(output["vulnerabilities"]) == ["cve:2024-3094"]
+    record = output["vulnerabilities"][0]
+    assert record["cve_code"] is None
+    assert record["details"]["cve"]["cve_id"] == "CVE-2024-3094"
+    assert scraper.checkpoint.nvd_start_index == 1
+    assert scraper.checkpoint.nvd_last_mod_end is not None
+    assert "startIndex=0" in client.urls_seen[0]
+
+
 class FakeClient:
     def __init__(self) -> None:
         self.list_pages_seen: list[int] = []
@@ -207,6 +243,44 @@ class FakeClient:
 
         avd_id = parse_qs(parsed.query)["id"][0]
         return FetchResult(html=detail_html(avd_id), status_code=200, url=url)
+
+
+class FakeCVEClient:
+    def __init__(self) -> None:
+        self.urls_seen: list[str] = []
+
+    async def get_json(self, url: str, *, headers=None):
+        self.urls_seen.append(url)
+        return FakeJSONResult(
+            {
+                "resultsPerPage": 1,
+                "startIndex": 0,
+                "totalResults": 2,
+                "vulnerabilities": [
+                    {
+                        "cve": {
+                            "id": "CVE-2024-3094",
+                            "published": "2024-03-29T17:15:21.150",
+                            "lastModified": "2025-08-19T01:15:57.407",
+                            "vulnStatus": "Modified",
+                            "descriptions": [{"lang": "en", "value": "xz backdoor"}],
+                            "metrics": {},
+                            "weaknesses": [],
+                            "references": [],
+                            "configurations": [],
+                        }
+                    }
+                ],
+            },
+            url,
+        )
+
+
+class FakeJSONResult:
+    def __init__(self, data: dict, url: str) -> None:
+        self.data = data
+        self.status_code = 200
+        self.url = url
 
 
 def list_page_html(page: int) -> str:

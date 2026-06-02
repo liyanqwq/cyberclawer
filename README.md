@@ -21,7 +21,7 @@ pip install -e '.[browser]'
 ```
 
 AVD sync uses browser fallback by default. HKCERT is server-rendered HTML and does
-not use browser fallback.
+not use browser fallback. CVE sync calls the NVD API directly.
 
 ## MongoDB Layout
 
@@ -31,6 +31,7 @@ All scrapers use one MongoDB database, with one collection per scraper.
 | --- | --- | --- |
 | `avd_scraper/scrapers/avd/` | `vulnerabilities` | `python scrape.py tui` / `python scrape.py sync <hours>` |
 | `avd_scraper/scrapers/hkcert/` | `hkcert` | same |
+| `avd_scraper/scrapers/cve/` | `cve` | same |
 
 `mongodb.toml`:
 
@@ -44,6 +45,7 @@ conflict = "prompt"
 [mongodb.collections]
 avd = "vulnerabilities"
 hkcert = "hkcert"
+cve = "cve"
 ```
 
 Precedence for connection settings is CLI flags, environment variables
@@ -81,13 +83,13 @@ already exists, choose replace or rename).
 
 ## Document Shape
 
-Each document is keyed by unique `type` + `code`, with `_id` such as
-`AVD:2026-42945` or `HKCERT:suse-linux-kernel-multiple-vulnerabilities_20260601`.
-Common fields live at the top level:
+Each document is keyed by unique lowercase scraper `type` + provider-native
+`code`, with `_id` such as `avd:2026-42945`,
+`hkcert:suse-linux-kernel-multiple-vulnerabilities_20260601`, or
+`cve:2024-3094`. Common fields live at the top level:
 
-- `type`, `code`, `title`, `disclosure_date`, `status`
+- `type`, `code`, `cve_code`, `title`, `disclosure_date`, `status`
 - `source`
-- `cross_refs`
 - `details`
 
 Provider-specific fields live under `details.<provider>`.
@@ -95,8 +97,20 @@ Provider-specific fields live under `details.<provider>`.
 HKCERT detail fields include `intro`, `note`, `impact`, `systems_affected`,
 `solutions`, `solution_links`, `vulnerability_identifiers`, `bulletin_source`,
 `related_links`, `risk_level`, `release_date`, `last_update_date`, and `views`.
-CVEs from HKCERT `vulnerability_identifiers` are also stored in top-level
-`cross_refs` as `{ "type": "CVE", "code": "YYYY-NNNN" }`.
+CVEs from AVD/HKCERT details are stored as top-level `cve_code` using the
+normalized `YYYY-NNNN` form. Non-CVE bulletins use `cve_code = null`.
+
+CVE master records use `type = "cve"`, `code = "YYYY-NNNN"`, `cve_code = null`,
+and store the NVD payload under `details.cve`, including a `raw` copy for
+forward compatibility.
+
+Legacy documents that still have uppercase `type` or `cross_refs` should be
+migrated before relying on filters:
+
+```bash
+PYTHONPATH=. python scripts/migrate_schema_v2.py
+PYTHONPATH=. python scripts/migrate_schema_v2.py --apply
+```
 
 ## Development
 
@@ -106,6 +120,7 @@ Scrapers live under:
 avd_scraper/scrapers/
   __init__.py
   avd/
+  cve/
   hkcert/
 ```
 
@@ -123,3 +138,9 @@ These scrapers are for personal or research use. Aliyun AVD has no public API fo
 this catalog, so keep conservative request pacing and stop if the site returns
 rate-limit or challenge responses persistently. HKCERT bulletin pages are public,
 server-rendered HTML at [Security Bulletin](https://www.hkcert.org/security-bulletin).
+
+The CVE scraper uses the [NVD API 2.0](https://nvd.nist.gov/developers/vulnerabilities).
+Set `NVD_API_KEY` for production syncs. Without a key, NVD's public rate limit is
+much lower; the CVE provider defaults to a six-second request delay and uses
+120-day modified-date windows with NVD's 2,000-result page size. This product
+uses data from the NVD API but is not endorsed or certified by the NVD.

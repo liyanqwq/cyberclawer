@@ -9,7 +9,7 @@ from avd_scraper.filters import (
 
 
 def test_cve_classification_from_title() -> None:
-    record = {"title": "Example issue (CVE-2026-12345)", "details": {}}
+    record = {"title": "Example issue (CVE-2026-12345)", "cve_code": "2026-12345", "details": {}}
 
     assert record_has_cve(record)
     assert record_matches_types(record, include_cve=True, include_non_cve=False)
@@ -19,14 +19,14 @@ def test_cve_classification_from_title() -> None:
 def test_cve_classification_from_detail() -> None:
     record = {
         "title": "Vendor advisory",
-        "cross_refs": [{"type": "CVE", "code": "2026-99999"}],
+        "cve_code": "2026-99999",
     }
 
     assert record_has_cve(record)
 
 
 def test_non_cve_classification() -> None:
-    record = {"title": "Supply chain poisoning event", "cross_refs": [], "details": {"avd": {}}}
+    record = {"title": "Supply chain poisoning event", "cve_code": None, "details": {"avd": {}}}
 
     assert not record_has_cve(record)
     assert record_matches_types(record, include_cve=False, include_non_cve=True)
@@ -34,15 +34,15 @@ def test_non_cve_classification() -> None:
 
 def test_attribute_filters_match_top_level_and_aliases() -> None:
     record = {
-        "type": "AVD",
+        "type": "avd",
         "code": "2026-10001",
         "status": "CVE PoC",
-        "cross_refs": [{"type": "CVE", "code": "2026-10001"}],
+        "cve_code": "2026-10001",
     }
 
     assert record_matches_attribute_filters(record, [("type", "avd")])
     assert record_matches_attribute_filters(record, [("code", "2026-10001")])
-    assert record_matches_attribute_filters(record, [("cross_refs.code", "2026-10001")])
+    assert record_matches_attribute_filters(record, [("cve_code", "2026-10001")])
     assert record_matches_attribute_filters(record, [("status", "poc")])
 
 

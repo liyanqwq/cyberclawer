@@ -5,13 +5,14 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .browser import BrowserHTMLFetcher
 from .client import AVDClient, FetchError
 from .config import ScraperSettings
+from .cve_backfill import backfill_missing_cves
 from .models import ListEntry
 from .mongo import (
     MongoClientFactory,
@@ -21,6 +22,7 @@ from .mongo import (
     sync_records_to_collection,
 )
 from .providers import AVDProvider, ScraperProvider
+from .scrapers.cve.config import MAX_DATE_WINDOW_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,9 @@ class Checkpoint:
     total_pages: int | None = None
     total_records: int | None = None
     failed: dict[str, dict[str, Any]] = field(default_factory=dict)
+    nvd_last_mod_start: str | None = None
+    nvd_last_mod_end: str | None = None
+    nvd_start_index: int = 0
 
     @classmethod
     def load(cls, path: Path) -> "Checkpoint":
@@ -55,6 +60,9 @@ class Checkpoint:
             total_pages=data.get("total_pages"),
             total_records=data.get("total_records"),
             failed=failed,
+            nvd_last_mod_start=data.get("nvd_last_mod_start"),
+            nvd_last_mod_end=data.get("nvd_last_mod_end"),
+            nvd_start_index=int(data.get("nvd_start_index", 0)),
         )
 
     def save(self, path: Path) -> None:
@@ -64,6 +72,9 @@ class Checkpoint:
             "last_list_page": self.last_list_page,
             "total_pages": self.total_pages,
             "total_records": self.total_records,
+            "nvd_last_mod_start": self.nvd_last_mod_start,
+            "nvd_last_mod_end": self.nvd_last_mod_end,
+            "nvd_start_index": self.nvd_start_index,
             "failed": sorted(self.failed.values(), key=lambda item: item.get("identity", "")),
         }
         _write_json_atomic(path, payload)
@@ -84,6 +95,8 @@ class AVDScraper:
         self.settings = settings.for_provider(
             self.provider.key,
             default_collection=self.provider.default_mongo_collection,
+            browser_fallback=self.provider.browser_fallback,
+            default_request_delay=getattr(self.provider, "default_request_delay", None),
         ).normalized()
         self.checkpoint = Checkpoint()
         self.records_by_id: dict[str, dict[str, Any]] = {}
@@ -129,6 +142,7 @@ class AVDScraper:
                 return await self._run_with_client(client)
 
     async def _run_with_client(self, client: AVDClient) -> dict[str, Any]:
+        self._ensure_provider_checkpoint()
         if self.settings.mongo_enabled:
             return await self._run_mongo_update_with_client(client)
 
@@ -159,6 +173,21 @@ class AVDScraper:
                 source={"provider": self.provider.key, "url": self.provider.source_url},
             )
             output["mongo_sync"] = self.mongo_result.to_dict()
+            if self.provider.key != "cve":
+                backfill_result = await backfill_missing_cves(
+                    output["vulnerabilities"],
+                    self.settings,
+                    mongo_client,
+                    scraped_at=scraped_at,
+                )
+                if (
+                    backfill_result.inserted
+                    or backfill_result.overwritten
+                    or backfill_result.skipped
+                    or backfill_result.conflicts
+                    or backfill_result.errors
+                ):
+                    output["cve_backfill"] = backfill_result.to_dict()
             self._emit(phase="mongo-complete", mongo_sync=output["mongo_sync"])
             self._emit(phase="completed")
             return output
@@ -178,17 +207,19 @@ class AVDScraper:
             if total_pages is not None and page > total_pages:
                 break
 
-            url = self.provider.list_url(page)
+            url = self.provider.list_url(page, checkpoint=self.checkpoint)
             logger.info("Fetching newest-update list page %s", page)
             self._emit(phase="list", page=page)
             try:
-                result = await client.get_html(url)
+                list_page = await self._fetch_list_page(client, url, page)
             except FetchError as exc:
                 self._record_failure("LIST", url, exc, phase="list")
                 break
 
-            list_page = self.provider.parse_list(result.html, page=page)
             if not list_page.entries:
+                if self._empty_nvd_window_complete(list_page):
+                    self._complete_nvd_window()
+                    break
                 self._record_failure(f"LIST-PAGE-{page}", url, "No rows parsed", phase="list")
                 break
 
@@ -201,7 +232,11 @@ class AVDScraper:
                 self.checkpoint.total_records = list_page.total_records
 
             page_ids = [entry.key for entry in list_page.entries]
-            all_known_on_page = bool(page_ids) and all(identity in known_ids for identity in page_ids)
+            all_known_on_page = (
+                self.provider.key != "cve"
+                and bool(page_ids)
+                and all(identity in known_ids for identity in page_ids)
+            )
             candidates = self._newest_update_targets_for_page(
                 list_page.entries,
                 known_ids=known_ids,
@@ -219,8 +254,13 @@ class AVDScraper:
                         break
 
             self.selected_ids = selected_ids.copy()
+            self._advance_nvd_checkpoint(list_page)
             self.checkpoint.save(self.settings.checkpoint_file)
             self._emit(phase="page-complete", page=page)
+            if self._nvd_window_page_complete(list_page):
+                self._complete_nvd_window()
+                self.checkpoint.save(self.settings.checkpoint_file)
+                break
             if all_known_on_page:
                 break
             page += 1
@@ -246,7 +286,7 @@ class AVDScraper:
         for entry in entries:
             if remaining <= 0:
                 break
-            if entry.key in known_ids and not refresh_existing:
+            if self.provider.key != "cve" and entry.key in known_ids and not refresh_existing:
                 continue
             targets.append(entry)
             remaining -= 1
@@ -263,17 +303,19 @@ class AVDScraper:
             if total_pages is not None and page > total_pages:
                 break
 
-            url = self.provider.list_url(page)
+            url = self.provider.list_url(page, checkpoint=self.checkpoint)
             logger.info("Fetching list page %s", page)
             self._emit(phase="list", page=page)
             try:
-                result = await client.get_html(url)
+                list_page = await self._fetch_list_page(client, url, page)
             except FetchError as exc:
                 self._record_failure("LIST", url, exc, phase="list")
                 break
 
-            list_page = self.provider.parse_list(result.html, page=page)
             if not list_page.entries:
+                if self._empty_nvd_window_complete(list_page):
+                    self._complete_nvd_window()
+                    break
                 self._record_failure(f"LIST-PAGE-{page}", url, "No rows parsed", phase="list")
                 break
 
@@ -297,9 +339,14 @@ class AVDScraper:
                         break
 
             self.selected_ids = selected_ids.copy()
+            self._advance_nvd_checkpoint(list_page)
             _write_json_atomic(self.settings.output_file, self._build_output())
             self.checkpoint.save(self.settings.checkpoint_file)
             self._emit(phase="page-complete", page=page)
+            if self._nvd_window_page_complete(list_page):
+                self._complete_nvd_window()
+                self.checkpoint.save(self.settings.checkpoint_file)
+                break
             page += 1
 
         self.selected_ids = selected_ids[: self.settings.limit]
@@ -327,6 +374,61 @@ class AVDScraper:
 
         await asyncio.gather(*(scrape_one(entry) for entry in targets))
 
+    async def _fetch_list_page(self, client: AVDClient, url: str, page: int) -> Any:
+        if getattr(self.provider, "content_type", "html") == "json":
+            result = await client.get_json(url, headers=self._provider_request_headers())
+            return self.provider.parse_list(result.data, page=page)
+
+        result = await client.get_html(url)
+        return self.provider.parse_list(result.html, page=page)
+
+    def _provider_request_headers(self) -> dict[str, str]:
+        request_headers = getattr(self.provider, "request_headers", None)
+        if request_headers is None:
+            return {}
+        return dict(request_headers())
+
+    def _ensure_provider_checkpoint(self) -> None:
+        if self.provider.key != "cve":
+            return
+        if self.checkpoint.nvd_last_mod_start and self.checkpoint.nvd_last_mod_end:
+            return
+
+        now = datetime.now(UTC)
+        if self.checkpoint.nvd_last_mod_start:
+            start = _parse_nvd_datetime(self.checkpoint.nvd_last_mod_start)
+            max_end = start + timedelta(days=MAX_DATE_WINDOW_DAYS)
+            end = min(now, max_end)
+        else:
+            start = now - timedelta(days=MAX_DATE_WINDOW_DAYS)
+            end = now
+
+        self.checkpoint.nvd_last_mod_start = _format_nvd_datetime(start)
+        self.checkpoint.nvd_last_mod_end = _format_nvd_datetime(end)
+        self.checkpoint.nvd_start_index = max(0, self.checkpoint.nvd_start_index)
+
+    def _advance_nvd_checkpoint(self, list_page: Any) -> None:
+        if self.provider.key != "cve":
+            return
+        start_index = list_page.start_index if list_page.start_index is not None else self.checkpoint.nvd_start_index
+        page_size = list_page.results_per_page or len(list_page.entries)
+        self.checkpoint.nvd_start_index = max(self.checkpoint.nvd_start_index, start_index + page_size)
+
+    def _nvd_window_page_complete(self, list_page: Any) -> bool:
+        if self.provider.key != "cve" or list_page.total_records is None:
+            return False
+        return self.checkpoint.nvd_start_index >= list_page.total_records
+
+    def _empty_nvd_window_complete(self, list_page: Any) -> bool:
+        return self.provider.key == "cve" and (list_page.total_records or 0) == 0
+
+    def _complete_nvd_window(self) -> None:
+        if self.provider.key != "cve":
+            return
+        self.checkpoint.nvd_last_mod_start = self.checkpoint.nvd_last_mod_end
+        self.checkpoint.nvd_last_mod_end = None
+        self.checkpoint.nvd_start_index = 0
+
     def _detail_targets_for_page(
         self,
         entries: list[ListEntry],
@@ -353,8 +455,12 @@ class AVDScraper:
         logger.info("Fetching detail %s", entry.key)
         self._emit(phase="detail", identity=entry.key, type=entry.identity.type, code=entry.identity.code)
         try:
-            result = await client.get_html(url)
-            detail = self.provider.parse_detail(result.html).to_dict()
+            if getattr(self.provider, "content_type", "html") == "json":
+                result = await client.get_json(url, headers=self._provider_request_headers())
+                detail = self.provider.parse_detail(result.data).to_dict()
+            else:
+                result = await client.get_html(url)
+                detail = self.provider.parse_detail(result.html).to_dict()
             self.records_by_id[entry.key] = entry.to_record(detail, detail_url=url)
             self.checkpoint.completed_identity_keys.add(entry.key)
             self.checkpoint.failed.pop(entry.key, None)
@@ -453,7 +559,7 @@ def _record_identity(record: dict[str, Any]) -> str | None:
     id_type = record.get("type")
     code = record.get("code")
     if id_type and code:
-        return f"{str(id_type).upper()}:{code}"
+        return f"{str(id_type).lower()}:{code}"
     return None
 
 
@@ -465,3 +571,19 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     tmp_path.replace(path)
+
+
+def _format_nvd_datetime(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _parse_nvd_datetime(value: str) -> datetime:
+    text = value.strip()
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)

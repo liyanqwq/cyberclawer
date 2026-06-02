@@ -6,6 +6,7 @@ import random
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -72,6 +73,13 @@ class FetchResult:
     via_browser: bool = False
 
 
+@dataclass(slots=True)
+class JSONFetchResult:
+    data: Any
+    status_code: int | None
+    url: str
+
+
 class AVDClient:
     def __init__(
         self,
@@ -130,6 +138,42 @@ class AVDClient:
                 last_error = exc
                 if isinstance(exc, WAFChallengeError):
                     raise
+                if attempt >= retry_count:
+                    break
+                await self._backoff(attempt)
+
+        raise FetchError(f"Failed to fetch {url}: {last_error}") from last_error
+
+    async def get_json(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        retries: int | None = None,
+    ) -> JSONFetchResult:
+        retry_count = self.retries if retries is None else max(0, retries)
+        last_error: Exception | None = None
+
+        for attempt in range(retry_count + 1):
+            await self.rate_limiter.wait()
+            try:
+                response = await self._client.get(url, headers=dict(headers or {}))
+                if response.status_code == 429 or response.status_code >= 500:
+                    raise FetchError(f"HTTP {response.status_code} for {url}")
+                response.raise_for_status()
+                return JSONFetchResult(
+                    data=response.json(),
+                    status_code=response.status_code,
+                    url=str(response.url),
+                )
+            except (
+                ValueError,
+                httpx.TimeoutException,
+                httpx.TransportError,
+                httpx.HTTPStatusError,
+                FetchError,
+            ) as exc:
+                last_error = exc
                 if attempt >= retry_count:
                     break
                 await self._backoff(attempt)

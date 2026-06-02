@@ -65,7 +65,7 @@ def test_fetch_filtered_page_is_array_aware_sorted_and_paginated() -> None:
     _, second_page = fetch_filtered_page(collection, state)
 
     assert total == 1
-    assert [f"{item['type']}:{item['code']}" for item in first_page] == ["AVD:2026-10003"]
+    assert [f"{item['type']}:{item['code']}" for item in first_page] == ["avd:2026-10003"]
     assert second_page == []
 
 
@@ -125,16 +125,16 @@ def test_export_filtered_results_writes_expected_payload(tmp_path) -> None:
 
     written = json.loads(output_path.read_text(encoding="utf-8"))
     assert written["result_count"] == 1
-    assert written["vulnerabilities"][0]["type"] == "AVD"
+    assert written["vulnerabilities"][0]["type"] == "avd"
 
 
 def record(avd_id: str, disclosure_date: str, status: str, title: str, *, product: str) -> dict:
     code = avd_id.removeprefix("AVD-")
     return {
-        "_id": f"AVD:{code}",
-        "type": "AVD",
+        "_id": f"avd:{code}",
+        "type": "avd",
         "code": code,
-        "cross_refs": [{"type": "CVE", "code": code}],
+        "cve_code": code,
         "title": title,
         "vuln_type": "CWE-78",
         "disclosure_date": disclosure_date,

@@ -90,6 +90,7 @@ class ScrapeTUI:
                 provider.key,
                 default_collection=provider.default_mongo_collection,
                 browser_fallback=provider.browser_fallback,
+                default_request_delay=provider.default_request_delay,
             )
             output = asyncio.run(AVDScraper(settings, provider=provider).run())
         except Exception as exc:

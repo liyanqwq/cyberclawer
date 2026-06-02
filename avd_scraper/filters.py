@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Iterator
 from typing import Any
 
 from .config import MAX_RESULT_LIMIT
 
 
-CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
 TYPE_CVE = "cve"
 TYPE_NON_CVE = "non-cve"
 TYPE_CHOICES = {TYPE_CVE, TYPE_NON_CVE}
@@ -144,19 +142,3 @@ def _normalize_filter_path(field_path: str) -> str:
     normalized = ".".join(part.strip() for part in field_path.split(".") if part.strip())
     alias_key = normalized.replace(".", "_").casefold()
     return FIELD_ALIASES.get(alias_key, normalized)
-
-
-def _record_text(record: dict[str, Any]) -> str:
-    chunks: list[str] = []
-    for key in ("type", "code", "title", "vuln_type", "status"):
-        value = record.get(key)
-        if value:
-            chunks.append(str(value))
-
-    for key in ("cve_code", "details"):
-        value = record.get(key)
-        if isinstance(value, (dict, list)):
-            chunks.append(str(value))
-        elif value:
-            chunks.append(str(value))
-    return " ".join(chunks)

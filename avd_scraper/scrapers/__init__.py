@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from avd_scraper.models import ListPage
 from avd_scraper.scrapers.avd import AVDProvider
+from avd_scraper.scrapers.cve import CVEProvider
 from avd_scraper.scrapers.hkcert import HKCERTProvider
 
 
@@ -12,19 +13,22 @@ class ScraperProvider(Protocol):
     source_url: str
     default_mongo_collection: str
     browser_fallback: bool
+    content_type: Literal["html", "json"]
+    default_request_delay: float
 
-    def list_url(self, page: int) -> str: ...
+    def list_url(self, page: int, *, checkpoint: object | None = None) -> str: ...
 
     def detail_url(self, identity_display: str) -> str: ...
 
-    def parse_list(self, html: str, *, page: int) -> ListPage: ...
+    def parse_list(self, content: Any, *, page: int) -> ListPage: ...
 
-    def parse_detail(self, html: str) -> Any: ...
+    def parse_detail(self, content: Any) -> Any: ...
 
 
 PROVIDERS: dict[str, type[ScraperProvider]] = {
     "avd": AVDProvider,
     "hkcert": HKCERTProvider,
+    "cve": CVEProvider,
 }
 
 
